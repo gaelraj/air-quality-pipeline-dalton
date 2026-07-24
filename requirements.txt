@@ -1,0 +1,6 @@
+apache-airflow==3.1.0
+apache-airflow-providers-standard
+requests
+pandas
+python-dotenv
+psycopg[binary]
