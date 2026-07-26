@@ -2,37 +2,40 @@
 
 ## 1. Overview
 
-This project uses a batch-oriented data pipeline to collect, store, clean, validate, and load air quality data into a PostgreSQL data warehouse.
+This project uses an automated batch data pipeline to collect, store, clean, validate, and load air quality data into a PostgreSQL data warehouse.
 
-The pipeline is designed around the following principles:
+The architecture follows these principles:
 
-- raw data must be preserved without modification;
-- clean data must be rebuilt from raw data;
-- data must be validated before warehouse loading;
-- the warehouse must support analytical queries;
-- the hourly pipeline and the historical backfill must share the same data flow.
+- raw data is preserved;
+- clean data is rebuilt from raw data;
+- validation runs before warehouse loading;
+- warehouse loading is idempotent;
+- hourly collection and historical backfill share the same raw-to-clean-to-warehouse flow;
+- GitHub Actions is the orchestrator.
 
-## 2. Global Architecture
+## 2. Global architecture
 
 ```text
 OpenWeather Air Pollution API
         ↓
-Python Collector
+GitHub Actions workflow
         ↓
-Raw JSON Storage
+Python collector scripts
         ↓
-Clean CSV Builder
+Raw JSON storage
         ↓
-Data Validation
+Clean CSV builder
         ↓
-PostgreSQL Data Warehouse
+Data validation
         ↓
-SQL Analysis
+PostgreSQL warehouse on Neon
+        ↓
+SQL analysis / BI dashboard
 ```
 
-## 3. Main Components
+## 3. Main components
 
-### 3.1 OpenWeather Air Pollution API
+## 3.1 OpenWeather Air Pollution API
 
 The API is the external data source.
 
@@ -52,13 +55,13 @@ The project uses two API modes:
 
 ```text
 Current API
-→ used by the hourly Airflow pipeline
+→ used by the hourly GitHub Actions workflow
 
 Historical API
-→ used by the manual backfill script
+→ used by the manual backfill workflow
 ```
 
-## 4. Python Source Code
+## 3.2 Python source code
 
 The main business logic is located in:
 
@@ -66,69 +69,54 @@ The main business logic is located in:
 src/air_quality/
 ```
 
-### 4.1 `cities.py`
+### `cities.py`
 
 Defines the monitored cities and their coordinates.
 
-### 4.2 `config.py`
+### `config.py`
 
-Loads environment variables from the `.env` file.
+Loads environment values required by the pipeline.
 
-It provides:
+### `api_client.py`
 
-```text
-OPENWEATHER_API_KEY
-DATABASE_URL
-```
-
-### 4.3 `api_client.py`
-
-Contains functions that call OpenWeather API.
-
-It supports:
+Contains functions that call OpenWeather API:
 
 ```text
 fetch_current_air_quality()
 fetch_historical_air_quality()
 ```
 
-### 4.4 `current_collector.py`
+### `current_collector.py`
 
 Collects current air quality data for all monitored cities.
 
-It is used by the Airflow hourly DAG.
+### `raw_storage.py`
 
-### 4.5 `raw_storage.py`
-
-Stores API responses as raw JSON files.
-
-Raw files are saved in:
+Stores API responses as raw JSON files in:
 
 ```text
 data/raw/
 ```
 
-The raw layer is immutable. Files are not modified after being written.
+Raw files are not modified after being written.
 
-### 4.6 `clean_builder.py`
+### `clean_builder.py`
 
-Reads all raw JSON files and rebuilds the clean CSV dataset.
-
-The clean file is saved as:
+Reads all raw JSON files and rebuilds:
 
 ```text
 data/clean/air_quality_clean.csv
 ```
 
-The clean builder also removes duplicates based on:
+The clean builder removes duplicates based on:
 
 ```text
 city_name + observed_at_utc
 ```
 
-### 4.7 `validation.py`
+### `validation.py`
 
-Validates the clean CSV file before loading it into the warehouse.
+Validates the clean CSV before loading it into the warehouse.
 
 It checks:
 
@@ -139,9 +127,9 @@ It checks:
 - missing observation timestamps;
 - chronological sorting.
 
-### 4.8 `warehouse_loader.py`
+### `warehouse_loader.py`
 
-Loads the clean CSV file into the PostgreSQL data warehouse.
+Loads the clean CSV file into Neon PostgreSQL.
 
 It inserts data into:
 
@@ -153,9 +141,79 @@ fact_air_quality
 
 It uses upsert logic to avoid duplicate records.
 
-## 5. Storage Layers
+## 4. GitHub Actions orchestration
 
-## 5.1 Raw Layer
+The orchestrator is GitHub Actions.
+
+The workflows are stored in:
+
+```text
+.github/workflows/
+```
+
+### 4.1 Hourly workflow
+
+File:
+
+```text
+.github/workflows/aqi_hourly_pipeline.yml
+```
+
+Purpose:
+
+```text
+Collect new air quality data every hour.
+```
+
+Task order:
+
+```text
+collect_current.py
+        ↓
+rebuild_clean.py
+        ↓
+validate_clean.py
+        ↓
+run_schema.py
+        ↓
+load_warehouse.py
+        ↓
+commit data/raw and data/clean
+```
+
+### 4.2 Backfill workflow
+
+File:
+
+```text
+.github/workflows/aqi_backfill_pipeline.yml
+```
+
+Purpose:
+
+```text
+Manually collect historical data for a selected number of past days.
+```
+
+Task order:
+
+```text
+backfill_air_quality.py
+        ↓
+rebuild_clean.py
+        ↓
+validate_clean.py
+        ↓
+run_schema.py
+        ↓
+load_warehouse.py
+        ↓
+commit data/raw and data/clean
+```
+
+## 5. Storage layers
+
+## 5.1 Raw layer
 
 Raw data is stored in:
 
@@ -175,15 +233,9 @@ data/raw/city=antsiranana/
 
 Raw files are JSON files.
 
-Example:
-
-```text
-history_20260715T060000Z_20260716T060000Z_collected_20260716T061053Z.json
-```
-
 The raw layer is important because it allows the clean dataset to be rebuilt at any time.
 
-## 5.2 Clean Layer
+## 5.2 Clean layer
 
 Clean data is stored in:
 
@@ -195,11 +247,23 @@ This file contains one row per city and per observation hour.
 
 The clean layer is rebuilt from raw files.
 
-## 6. Data Warehouse
+## 5.3 Generated data and Git
 
-The warehouse is hosted on PostgreSQL using Neon.
+The generated data folders are ignored for normal local commits.
 
-The schema follows a star model.
+GitHub Actions commits generated data explicitly using:
+
+```text
+git add -f data/raw data/clean
+```
+
+This prevents accidental local commits while still preserving automated pipeline outputs.
+
+## 6. Data warehouse
+
+The warehouse is hosted on Neon PostgreSQL.
+
+The schema follows a star model:
 
 ```text
             dim_city
@@ -213,9 +277,7 @@ The schema follows a star model.
 
 ## 6.1 `dim_city`
 
-Stores city information.
-
-Example columns:
+Stores city information:
 
 ```text
 city_id
@@ -225,13 +287,9 @@ latitude
 longitude
 ```
 
-A city is inserted only once.
-
 ## 6.2 `dim_time`
 
-Stores time information.
-
-Example columns:
+Stores time information:
 
 ```text
 time_id
@@ -245,13 +303,9 @@ day_of_week
 is_weekend
 ```
 
-This dimension allows time-based analysis.
-
 ## 6.3 `fact_air_quality`
 
-Stores air quality measurements.
-
-Example columns:
+Stores air quality measurements:
 
 ```text
 fact_id
@@ -272,100 +326,40 @@ ingested_at_utc
 
 The fact table references `dim_city` and `dim_time` using foreign keys.
 
-## 7. Airflow Orchestration
+## 7. Historical backfill
 
-The Airflow DAG is located in:
-
-```text
-dags/air_quality_hourly_dag.py
-```
-
-The DAG runs every hour.
-
-The task order is:
-
-```text
-collect_raw_data
-        ↓
-rebuild_clean_data
-        ↓
-validate_clean_data
-        ↓
-load_data_warehouse
-```
-
-### 7.1 `collect_raw_data`
-
-Collects current air quality data from OpenWeather and stores raw JSON files.
-
-### 7.2 `rebuild_clean_data`
-
-Rebuilds the clean CSV file from all raw files.
-
-### 7.3 `validate_clean_data`
-
-Validates the clean CSV file.
-
-If validation fails, the warehouse loading task is not executed.
-
-### 7.4 `load_data_warehouse`
-
-Loads the validated clean data into PostgreSQL.
-
-## 8. Historical Backfill
-
-The historical backfill script is located in:
+The backfill workflow uses:
 
 ```text
 scripts/backfill_air_quality.py
 ```
 
-It collects past data from the OpenWeather historical API.
+It collects historical air quality data from OpenWeather and writes raw JSON files.
 
-The backfill only writes raw JSON files.
-
-After running a backfill, the following steps must be executed:
+After raw files are generated, the same pipeline flow is used:
 
 ```text
-rebuild clean CSV
-validate clean CSV
-load warehouse
+raw → clean → validation → warehouse
 ```
 
-This keeps the same architecture for both current and historical data.
-
-## 9. Why This Architecture Is Reliable
+## 8. Why this architecture is reliable
 
 This architecture is reliable because:
 
 - raw data is preserved;
 - clean data can be rebuilt from raw files;
 - validation prevents bad data from entering the warehouse;
-- warehouse loading is idempotent;
-- Airflow controls task order;
-- historical and hourly data follow the same pipeline structure.
+- warehouse loading uses upsert logic;
+- GitHub Actions provides scheduled and manual runs;
+- GitHub Actions keeps execution logs and run history;
+- generated raw and clean files are committed after successful runs.
 
-## 10. Final Data Flow
+## 9. Final data flow
 
 ```text
 Hourly collection:
-Airflow → OpenWeather Current API → raw → clean → validation → warehouse
+GitHub Actions → OpenWeather Current API → raw → clean → validation → warehouse → commit generated data
 
 Historical collection:
-Backfill script → OpenWeather Historical API → raw → clean → validation → warehouse
+GitHub Actions manual backfill → OpenWeather Historical API → raw → clean → validation → warehouse → commit generated data
 ```
-
-## 11. Current Status
-
-The architecture has been tested with:
-
-- current data collection;
-- small historical backfill;
-- clean CSV reconstruction;
-- data validation;
-- PostgreSQL warehouse loading;
-- Airflow DAG execution.
-
-A larger historical backfill can be executed later during the group phase.
-
-
