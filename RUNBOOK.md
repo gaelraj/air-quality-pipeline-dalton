@@ -6,13 +6,13 @@ This runbook explains how to run and verify the air quality data pipeline.
 
 It covers:
 
-- environment setup;
-- manual execution;
-- historical backfill;
-- Airflow execution;
-- warehouse verification.
+- local execution;
+- hourly GitHub Actions execution;
+- historical backfill execution;
+- warehouse verification;
+- troubleshooting.
 
-## 2. Set Up the Python Environment
+## 2. Local setup
 
 Go to the project root directory:
 
@@ -20,25 +20,19 @@ Go to the project root directory:
 cd air-quality-pipeline
 ```
 
-Or, if the project is located elsewhere:
-
-```bash
-cd <project-root>
-```
-
-Create a Python virtual environment if it does not already exist:
+Create a Python virtual environment if needed:
 
 ```bash
 python -m venv .venv
 ```
 
-Activate the virtual environment:
+Activate it:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Install the project dependencies:
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -50,22 +44,19 @@ Export the Python path:
 export PYTHONPATH="$PWD/src:$PYTHONPATH"
 ```
 
-## 3. Required Environment Variables
+## 3. Local environment file
 
-The project requires a `.env` file at the project root.
+For local execution only, create a `.env` file from the example file:
 
-Required variables:
-
-```env
-OPENWEATHER_API_KEY=your_openweather_api_key
-DATABASE_URL=your_postgresql_connection_string
-OPENWEATHER_CURRENT_URL=https://api.openweathermap.org/data/2.5/air_pollution
-OPENWEATHER_HISTORY_URL=https://api.openweathermap.org/data/2.5/air_pollution/history
+```bash
+cp .env.example .env
 ```
 
-The `.env` file must never be committed to Git.
+Fill it with the local values used by the scripts.
 
-## 4. Test the Current API Client
+The `.env` file must not be committed.
+
+## 4. Test the current API client locally
 
 ```bash
 python scripts/test_api_client.py
@@ -79,7 +70,7 @@ AQI: ...
 Components: {...}
 ```
 
-## 5. Test the Historical API Client
+## 5. Test the historical API client locally
 
 ```bash
 python scripts/test_history_api_client.py
@@ -94,7 +85,7 @@ First AQI: ...
 First components: {...}
 ```
 
-## 6. Run the Manual Pipeline
+## 6. Run the local manual pipeline
 
 ### 6.1 Collect current air quality data
 
@@ -156,133 +147,115 @@ Expected result:
 Warehouse loaded successfully: ... rows processed
 ```
 
-## 7. Historical Backfill
+## 7. Run a local historical backfill
 
-To test a small historical backfill:
+Example for the last 3 days:
 
 ```bash
 python scripts/backfill_air_quality.py --days 3
-```
-
-This only writes historical raw JSON files.
-
-After the backfill, rebuild and load the warehouse:
-
-```bash
 python scripts/rebuild_clean.py
 python scripts/validate_clean.py
+python scripts/run_schema.py
 python scripts/load_warehouse.py
 ```
 
-A larger backfill can be executed later during the group phase.
+The backfill writes historical raw JSON files first, then rebuilds clean data and loads the warehouse.
 
-## 8. Airflow DAG
+## 8. GitHub Actions hourly pipeline
 
-The Airflow DAG is:
+The hourly workflow file is:
 
 ```text
-dags/air_quality_hourly_dag.py
+.github/workflows/aqi_hourly_pipeline.yml
 ```
 
-The DAG name is:
+It runs automatically every hour.
+
+It can also be launched manually from the GitHub Actions tab.
+
+Expected workflow order:
 
 ```text
-air_quality_hourly_pipeline
-```
-
-The task order is:
-
-```text
-collect_raw_data
+Collect current raw data
 ↓
-rebuild_clean_data
+Rebuild clean CSV
 ↓
-validate_clean_data
+Validate clean CSV
 ↓
-load_data_warehouse
+Create warehouse schema
+↓
+Load warehouse
+↓
+Commit generated raw and clean data
 ```
 
-## 9. Link the DAG to Airflow
+## 9. GitHub Actions backfill pipeline
 
-If Airflow does not automatically detect the DAG, create a symbolic link from the project DAG file to the Airflow DAGs folder.
-
-Default local Airflow DAGs folder:
-
-```bash
-mkdir -p ~/airflow/dags
-```
-
-Create the symbolic link from the project root:
-
-```bash
-ln -sf "$PWD/dags/air_quality_hourly_dag.py" ~/airflow/dags/air_quality_hourly_dag.py
-```
-
-If your Airflow home directory is different, replace `~/airflow/dags` with your own Airflow DAGs folder.
-
-## 10. Check Airflow Import Errors
-
-```bash
-airflow dags list-import-errors --local
-```
-
-Expected result:
+The backfill workflow file is:
 
 ```text
-No data found
+.github/workflows/aqi_backfill_pipeline.yml
 ```
 
-## 11. Check if the DAG is Detected
+It is launched manually from the GitHub Actions tab.
 
-```bash
-airflow dags list --local | grep air_quality
-```
-
-Expected result:
+The workflow asks for:
 
 ```text
-air_quality_hourly_pipeline
+Number of past days to backfill
 ```
 
-## 12. Test the DAG Manually
-
-```bash
-airflow dags test air_quality_hourly_pipeline 2026-07-04
-```
-
-Expected result:
+Example value:
 
 ```text
-Dag run in success state
+7
 ```
 
-## 13. Run Airflow Locally
-
-```bash
-airflow standalone
-```
-
-Open the Airflow UI in the browser:
+Expected workflow order:
 
 ```text
-http://localhost:8080
+Backfill historical raw data
+↓
+Rebuild clean CSV
+↓
+Validate clean CSV
+↓
+Create warehouse schema
+↓
+Load warehouse
+↓
+Commit generated raw and clean data
 ```
 
-The DAG must be unpaused to run automatically every hour.
+## 10. Verify generated repository data
 
-## 14. Verify Warehouse Data in Neon
+After a successful GitHub Actions run, check that new files were committed under:
 
-### 14.1 Count all measurements
+```text
+data/raw/
+data/clean/air_quality_clean.csv
+```
+
+Useful local checks after pulling latest `main`:
+
+```bash
+find data/raw -name "*.json" | wc -l
+wc -l data/clean/air_quality_clean.csv
+```
+
+## 11. Verify warehouse data in Neon
+
+Count all measurements:
 
 ```sql
 SELECT COUNT(*) AS total_measurements
 FROM fact_air_quality;
 ```
 
-### 14.2 Count measurements by city
+Count measurements by city:
 
 ```sql
-SELECT 
+SELECT
     c.city_name,
     COUNT(*) AS measurement_count
 FROM fact_air_quality f
@@ -291,20 +264,20 @@ GROUP BY c.city_name
 ORDER BY c.city_name;
 ```
 
-### 14.3 Check the covered period
+Check the covered period:
 
 ```sql
-SELECT 
+SELECT
     MIN(t.observed_at_utc) AS first_observation,
     MAX(t.observed_at_utc) AS last_observation
 FROM fact_air_quality f
 JOIN dim_time t ON t.time_id = f.time_id;
 ```
 
-### 14.4 Average AQI by city
+Average AQI by city:
 
 ```sql
-SELECT 
+SELECT
     c.city_name,
     ROUND(AVG(f.aqi), 2) AS average_aqi
 FROM fact_air_quality f
@@ -313,10 +286,10 @@ GROUP BY c.city_name
 ORDER BY average_aqi DESC;
 ```
 
-### 14.5 Average PM2.5 by city
+Average PM2.5 by city:
 
 ```sql
-SELECT 
+SELECT
     c.city_name,
     ROUND(AVG(f.pm2_5), 2) AS average_pm2_5
 FROM fact_air_quality f
@@ -325,51 +298,61 @@ GROUP BY c.city_name
 ORDER BY average_pm2_5 DESC;
 ```
 
-## 15. Troubleshooting
+## 12. Troubleshooting
 
-### 15.1 OpenWeather timeout
+### 12.1 OpenWeather timeout
 
-If the API times out, rerun the failed task or wait for the next Airflow execution.
+Rerun the failed workflow or wait for the next hourly run.
 
 The API client already includes retry logic.
 
-### 15.2 Airflow does not detect the DAG
+### 12.2 No raw or clean files after a workflow run
 
-Check the symbolic link:
+Check that the workflow reached the final commit step.
 
-```bash
-ls -l ~/airflow/dags
+The workflow must execute:
+
+```text
+git add -f data/raw data/clean
 ```
 
-Then check import errors:
+### 12.3 Warehouse tables are missing
+
+Check that the `Create warehouse schema` step succeeded.
+
+This step runs:
 
 ```bash
-airflow dags list-import-errors --local
+python scripts/run_schema.py
 ```
 
-### 15.3 Warehouse loading is slow
+### 12.4 Warehouse has no data
 
-The loader inserts data row by row and prints progress logs.
+Check that the `Load warehouse` step succeeded.
 
-This is normal for small test datasets.
+This step runs:
 
-### 15.4 `.env` is missing
+```bash
+python scripts/load_warehouse.py
+```
 
-Create a `.env` file from `.env.example` and fill in the real values.
+### 12.5 Validation fails
 
-Do not commit `.env`.
+Inspect the clean CSV file:
 
-## 16. Current Project Status
+```text
+data/clean/air_quality_clean.csv
+```
 
-The project has been tested with:
+The warehouse loading step must not be trusted until validation passes.
 
-- current API collection;
-- historical API collection;
-- raw JSON storage;
-- clean CSV generation;
-- clean CSV validation;
-- PostgreSQL warehouse loading;
-- Airflow DAG execution.
+## 13. Final evidence for submission
 
+Collect the following evidence:
 
-
+- successful hourly workflow run history;
+- successful manual backfill run;
+- committed raw JSON files;
+- committed clean CSV file;
+- Neon SQL query screenshots;
+- dashboard screenshots if a BI tool is used.
