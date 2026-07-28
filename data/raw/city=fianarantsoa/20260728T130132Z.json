@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "city_name": "Fianarantsoa",
+    "country": "MG",
+    "latitude": -21.4527,
+    "longitude": 47.0857,
+    "source": "openweather",
+    "collected_at_utc": "2026-07-28T13:01:32.115859+00:00"
+  },
+  "api_response": {
+    "coord": {
+      "lon": 47.0857,
+      "lat": -21.4527
+    },
+    "list": [
+      {
+        "main": {
+          "aqi": 1
+        },
+        "components": {
+          "co": 98.66,
+          "no": 0.02,
+          "no2": 0.21,
+          "o3": 56.99,
+          "so2": 0.1,
+          "pm2_5": 4.4,
+          "pm10": 6.14,
+          "nh3": 0.22
+        },
+        "dt": 1785243692
+      }
+    ]
+  }
+}
