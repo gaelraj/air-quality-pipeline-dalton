@@ -1,0 +1,34 @@
+{
+  "metadata": {
+    "city_name": "Toamasina",
+    "country": "MG",
+    "latitude": -18.1492,
+    "longitude": 49.4023,
+    "source": "openweather",
+    "collected_at_utc": "2026-07-29T21:11:02.257227+00:00"
+  },
+  "api_response": {
+    "coord": {
+      "lon": 49.4023,
+      "lat": -18.1492
+    },
+    "list": [
+      {
+        "main": {
+          "aqi": 1
+        },
+        "components": {
+          "co": 90.01,
+          "no": 0.01,
+          "no2": 0.57,
+          "o3": 22.02,
+          "so2": 0.09,
+          "pm2_5": 2.19,
+          "pm10": 4.09,
+          "nh3": 0.2
+        },
+        "dt": 1785359462
+      }
+    ]
+  }
+}
