@@ -30,5 +30,3 @@ def collect_current_air_quality() -> list[Path]:
         print(f"Saved raw file: {file_path}")
 
     return saved_files
-
-

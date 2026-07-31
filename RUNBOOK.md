@@ -370,6 +370,3 @@ The project has been tested with:
 - clean CSV validation;
 - PostgreSQL warehouse loading;
 - Airflow DAG execution.
-
-
-

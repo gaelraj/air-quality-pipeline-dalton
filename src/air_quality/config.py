@@ -39,5 +39,3 @@ def get_openweather_history_url() -> str:
         "OPENWEATHER_HISTORY_URL",
         "https://api.openweathermap.org/data/2.5/air_pollution/history",
     )
-
-

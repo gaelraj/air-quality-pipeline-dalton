@@ -29,6 +29,7 @@ with DAG(
     schedule="@hourly",
     start_date=datetime(2026, 1, 1),
     catchup=False,
+    max_active_runs=1,
     default_args=default_args,
     tags=["air-quality", "aqi", "warehouse"],
 ) as dag:
@@ -58,5 +59,3 @@ with DAG(
     )
 
     collect_raw_data >> rebuild_clean_data >> validate_clean_data >> load_data_warehouse
-
-

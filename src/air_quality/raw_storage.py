@@ -92,5 +92,3 @@ def save_historical_raw_response(
         json.dump(raw_payload, file, ensure_ascii=False, indent=2)
 
     return file_path
-
-

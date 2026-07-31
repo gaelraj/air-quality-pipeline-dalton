@@ -291,5 +291,3 @@ This document is a deployment plan.
 It does not claim that the pipeline is already deployed.
 
 The actual 24/7 deployment will be completed later during the group project phase.
-
-

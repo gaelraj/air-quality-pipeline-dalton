@@ -145,5 +145,3 @@ Before the final submission, verify that:
 - SQL analysis queries work;
 - deployment proof is available;
 - video/demo is ready.
-
-

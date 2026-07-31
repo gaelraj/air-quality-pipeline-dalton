@@ -325,5 +325,3 @@ The pipeline has been tested with:
 - Airflow DAG execution.
 
 The larger historical backfill can be executed later during the group project phase.
-
-

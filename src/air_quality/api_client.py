@@ -82,5 +82,3 @@ def fetch_historical_air_quality(
                 f"Error: {error}"
             )
             sleep(wait_seconds)
-
-

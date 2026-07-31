@@ -358,5 +358,3 @@ This project demonstrates a complete data engineering workflow.
 It includes data ingestion, raw storage, data cleaning, validation, warehouse modeling, orchestration, and SQL analysis.
 
 The architecture is reliable because raw data is preserved, clean data can be rebuilt, invalid data is blocked before loading, and warehouse inserts are idempotent.
-
-

@@ -367,5 +367,3 @@ The architecture has been tested with:
 - Airflow DAG execution.
 
 A larger historical backfill can be executed later during the group phase.
-
-

@@ -8,9 +8,15 @@ from air_quality.config import get_openweather_api_key
 from air_quality.raw_storage import save_historical_raw_response
 
 
+def parse_date(value: str) -> datetime:
+    return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Backfill historical air quality data")
-    parser.add_argument("--days", type=int, default=7)
+    parser.add_argument("--days", type=int, default=None)
+    parser.add_argument("--start-date", type=str, default=None)
+    parser.add_argument("--end-date", type=str, default=None)
     return parser.parse_args()
 
 
@@ -20,8 +26,16 @@ def main() -> None:
     api_key = get_openweather_api_key()
     collected_at = datetime.now(timezone.utc)
 
-    end_datetime = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    start_datetime = end_datetime - timedelta(days=args.days)
+    if args.start_date and args.end_date:
+        start_datetime = parse_date(args.start_date)
+        end_datetime = parse_date(args.end_date)
+    else:
+        days = args.days or 7
+        end_datetime = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        start_datetime = end_datetime - timedelta(days=days)
+
+    if start_datetime >= end_datetime:
+        raise ValueError("start_datetime must be before end_datetime")
 
     current_start = start_datetime
 
@@ -59,5 +73,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
