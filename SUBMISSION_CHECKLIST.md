@@ -4,34 +4,35 @@
 
 This checklist maps the project requirements to the current implementation.
 
-It helps verify what is already implemented, what has been tested, and what evidence must be collected before final submission.
+It helps verify what is already implemented, what has been tested locally, and what still needs to be completed during the group phase.
 
-## 2. Requirement coverage
+## 2. Requirement Coverage
 
-| Requirement | Status | Project file / evidence |
+| Requirement | Status | Project File / Evidence |
 |---|---|---|
 | Air quality API | Done | OpenWeather Air Pollution API |
 | At least 5 cities | Done | `src/air_quality/cities.py` |
-| Hourly collection | Done | `.github/workflows/aqi_hourly_pipeline.yml` |
-| Orchestrator | Done | GitHub Actions |
+| Hourly collection | Done locally | `dags/air_quality_hourly_dag.py` |
+| Orchestrator | Done locally | Apache Airflow |
 | Raw storage | Done | `data/raw/` |
 | One raw file per city and API call | Done | `src/air_quality/raw_storage.py` |
-| Clean CSV file | Done after pipeline run | `data/clean/air_quality_clean.csv` |
+| Clean CSV file | Done | `data/clean/air_quality_clean.csv` |
 | Clean CSV rebuilt from raw | Done | `src/air_quality/clean_builder.py` |
 | Data validation | Done | `src/air_quality/validation.py` |
-| PostgreSQL warehouse | Done | Neon PostgreSQL |
+| PostgreSQL warehouse | Done locally with Neon | `sql/001_create_warehouse_schema.sql` |
 | Star schema | Done | `dim_city`, `dim_time`, `fact_air_quality` |
-| Warehouse schema | Done | `sql/001_create_warehouse_schema.sql` |
 | Warehouse loading | Done | `src/air_quality/warehouse_loader.py` |
-| Historical backfill support | Done | `.github/workflows/aqi_backfill_pipeline.yml` |
+| SQL analysis queries | Done | `sql/analysis_queries.sql` |
+| Historical backfill support | Done locally | `scripts/backfill_air_quality.py` |
+| 24/7 deployment | Planned | `DEPLOYMENT_PLAN.md` |
 | Documentation | Done | `README.md`, `ARCHITECTURE.md`, `DATA_CONTRACT.md`, `RUNBOOK.md` |
 | Final report | Drafted | `REPORT.md` |
-| Execution evidence | To collect | GitHub Actions screenshots, Neon SQL results |
+| Execution evidence | To complete after deployment | Airflow screenshots, Neon SQL results |
 | Video/demo | To complete later | Final group submission |
 
-## 3. Implemented components
+## 3. Implemented Components
 
-### 3.1 Source code
+### 3.1 Source Code
 
 ```text
 src/air_quality/
@@ -63,43 +64,22 @@ Contains manual execution scripts:
 - warehouse schema creation;
 - warehouse loading.
 
-### 3.3 GitHub Actions workflows
+### 3.3 Airflow DAG
 
 ```text
-.github/workflows/aqi_hourly_pipeline.yml
-.github/workflows/aqi_backfill_pipeline.yml
+dags/air_quality_hourly_dag.py
 ```
 
-The hourly workflow orchestrates:
+Orchestrates the hourly pipeline:
 
 ```text
-collect current raw data
+collect_raw_data
 ↓
-rebuild clean CSV
+rebuild_clean_data
 ↓
-validate clean CSV
+validate_clean_data
 ↓
-create warehouse schema
-↓
-load warehouse
-↓
-commit generated raw and clean data
-```
-
-The backfill workflow orchestrates:
-
-```text
-backfill historical raw data
-↓
-rebuild clean CSV
-↓
-validate clean CSV
-↓
-create warehouse schema
-↓
-load warehouse
-↓
-commit generated raw and clean data
+load_data_warehouse
 ```
 
 ### 3.4 SQL
@@ -108,81 +88,62 @@ commit generated raw and clean data
 sql/
 ```
 
-Contains the warehouse schema creation script.
+Contains:
 
-## 4. Checks to complete
+- warehouse schema creation;
+- analytical SQL queries.
 
-Before final submission, verify:
+## 4. Local Tests Completed
 
-- the hourly workflow runs successfully;
-- the manual backfill workflow runs successfully;
-- generated raw files are committed;
-- the clean CSV is committed;
-- validation passes;
-- Neon tables are created;
-- Neon tables contain rows;
-- SQL analysis queries return results.
+The following tests have been completed locally:
 
-## 5. Useful verification commands
+- current API client test;
+- historical API client test;
+- current raw data collection;
+- historical raw data collection for a small period;
+- clean CSV rebuild;
+- clean CSV validation;
+- warehouse schema creation;
+- warehouse loading into Neon;
+- Airflow DAG test execution.
 
-After pulling the latest `main`:
+## 5. Current Limitations
 
-```bash
-find data/raw -name "*.json" | wc -l
-wc -l data/clean/air_quality_clean.csv
-```
+The pipeline has not yet been deployed on an always-on server.
 
-Warehouse checks:
+The current execution is local.
 
-```sql
-SELECT COUNT(*) AS total_measurements
-FROM fact_air_quality;
-```
+This means that the hourly Airflow pipeline runs only when the local Airflow scheduler is running.
 
-```sql
-SELECT
-    c.city_name,
-    COUNT(*) AS measurement_count
-FROM fact_air_quality f
-JOIN dim_city c ON c.city_id = f.city_id
-GROUP BY c.city_name
-ORDER BY c.city_name;
-```
+## 6. Remaining Work for Group Phase
 
-```sql
-SELECT
-    MIN(t.observed_at_utc) AS first_observation,
-    MAX(t.observed_at_utc) AS last_observation
-FROM fact_air_quality f
-JOIN dim_time t ON t.time_id = f.time_id;
-```
+The following tasks remain for the group phase:
 
-## 6. Evidence to collect
+- choose the final deployment environment;
+- deploy the project on an always-on server;
+- configure production environment variables;
+- run Airflow continuously;
+- execute the final historical backfill period;
+- collect execution evidence;
+- capture Airflow screenshots;
+- capture Neon SQL result screenshots;
+- prepare the final video/demo;
+- finalize the report with real deployment results.
 
-Collect screenshots or proof of:
-
-- successful GitHub Actions hourly runs;
-- successful GitHub Actions backfill run;
-- generated raw JSON files in the repository;
-- generated clean CSV in the repository;
-- Neon table list;
-- Neon row counts;
-- SQL query results;
-- dashboard visualizations if used.
-
-## 7. Final submission reminder
+## 7. Final Submission Reminder
 
 Before the final submission, verify that:
 
 - `.env` is not committed;
 - `requirements.txt` is present;
-- documentation files are consistent with GitHub Actions;
-- the hourly workflow runs successfully;
-- the backfill workflow runs successfully;
+- documentation files are complete;
+- the Airflow DAG runs successfully;
 - raw files are generated;
 - clean CSV is generated;
 - validation passes;
 - warehouse tables contain data;
 - SQL analysis queries work;
-- execution proof is available;
+- deployment proof is available;
 - video/demo is ready.
+
+

@@ -2,238 +2,294 @@
 
 ## 1. Purpose
 
-This document describes the deployment strategy for the air quality data pipeline.
+This document describes the planned deployment strategy for the air quality data pipeline.
 
-The project is deployed through GitHub Actions. No local machine or dedicated server is required for the scheduled pipeline.
+The pipeline has currently been tested locally. The production deployment will be completed later during the group project phase.
 
-## 2. Deployment objective
+## 2. Current Status
 
-The deployment objective is to run the pipeline automatically every hour.
+The current implementation supports:
+
+- OpenWeather API collection;
+- raw JSON storage;
+- clean CSV generation;
+- data validation;
+- PostgreSQL warehouse loading;
+- local Airflow orchestration;
+- small historical backfill tests.
+
+The current pipeline is not yet deployed on an always-on server.
+
+## 3. Deployment Objective
+
+The deployment objective is to run the pipeline automatically 24 hours a day.
 
 The deployed system must:
 
-- execute the hourly workflow;
-- collect new air quality data;
+- execute the Airflow DAG every hour;
+- keep collecting new air quality data;
 - store raw API responses;
 - rebuild the clean CSV file;
 - validate the clean dataset;
-- load validated data into Neon PostgreSQL;
-- commit generated raw and clean files to the repository;
-- keep execution logs and run history.
+- load validated data into PostgreSQL;
+- keep the warehouse available for analysis.
 
-## 3. Target deployment architecture
+## 4. Target Deployment Architecture
 
 ```text
-GitHub Actions schedule
+Cloud or VPS server
         ↓
-Python pipeline scripts
+Airflow scheduler
+        ↓
+Airflow DAG
         ↓
 OpenWeather API
         ↓
-Raw JSON storage in repository
+Raw JSON storage
         ↓
-Clean CSV file in repository
+Clean CSV file
         ↓
 Neon PostgreSQL warehouse
-        ↓
-SQL analysis / dashboard
 ```
 
-## 4. Deployment components
+## 5. Required Deployment Components
 
-The deployment uses:
+The deployment environment must include:
 
-- GitHub repository;
-- GitHub Actions workflows;
 - Python;
-- OpenWeather API client;
-- raw and clean data folders;
-- Neon PostgreSQL;
-- SQL warehouse schema;
-- warehouse loader.
+- project source code;
+- virtual environment;
+- project dependencies;
+- Airflow;
+- `.env` file with real secrets;
+- access to the Neon PostgreSQL database;
+- persistent storage for raw and clean data;
+- a running Airflow scheduler.
 
-## 5. Workflows
+## 6. Environment Variables
 
-## 5.1 Hourly workflow
+The deployed environment must provide the following variables:
 
-File:
-
-```text
-.github/workflows/aqi_hourly_pipeline.yml
+```env
+OPENWEATHER_API_KEY=your_openweather_api_key
+DATABASE_URL=your_postgresql_connection_string
+OPENWEATHER_CURRENT_URL=https://api.openweathermap.org/data/2.5/air_pollution
+OPENWEATHER_HISTORY_URL=https://api.openweathermap.org/data/2.5/air_pollution/history
 ```
 
-Trigger:
+The `.env` file must not be committed to Git.
 
-```text
-Every hour
-Manual run
+## 7. Deployment Steps
+
+### 7.1 Clone the repository
+
+```bash
+git clone <repository-url>
+cd air-quality-pipeline
 ```
 
-Purpose:
+### 7.2 Create a virtual environment
 
-```text
-Collect current air quality data and load it into Neon.
+```bash
+python -m venv .venv
+source .venv/bin/activate
 ```
 
-## 5.2 Backfill workflow
+### 7.3 Install dependencies
 
-File:
-
-```text
-.github/workflows/aqi_backfill_pipeline.yml
+```bash
+pip install -r requirements.txt
 ```
 
-Trigger:
+### 7.4 Create the environment file
 
-```text
-Manual run only
+```bash
+cp .env.example .env
 ```
 
-Purpose:
+Then fill in the real values.
 
-```text
-Collect historical air quality data for a selected number of past days.
+### 7.5 Export Python path
+
+```bash
+export PYTHONPATH="$PWD/src:$PYTHONPATH"
 ```
 
-## 6. Hourly pipeline steps
+### 7.6 Create the warehouse schema
 
-```text
-Checkout repository
-↓
-Install Python dependencies
-↓
-Collect current raw data
-↓
-Rebuild clean CSV
-↓
-Validate clean CSV
-↓
-Create warehouse schema
-↓
-Load warehouse
-↓
-Commit generated raw and clean data
+```bash
+python scripts/run_schema.py
 ```
 
-## 7. Backfill pipeline steps
+### 7.7 Test the manual pipeline
 
-```text
-Checkout repository
-↓
-Install Python dependencies
-↓
-Backfill historical raw data
-↓
-Rebuild clean CSV
-↓
-Validate clean CSV
-↓
-Create warehouse schema
-↓
-Load warehouse
-↓
-Commit generated raw and clean data
+```bash
+python scripts/collect_current.py
+python scripts/rebuild_clean.py
+python scripts/validate_clean.py
+python scripts/load_warehouse.py
 ```
 
-## 8. Data persistence strategy
+### 7.8 Configure Airflow
 
-Raw and clean files are generated during workflow execution.
-
-The repository ignores these folders for normal local commits:
+The Airflow DAG file is located in:
 
 ```text
-data/raw/
-data/clean/
+dags/air_quality_hourly_dag.py
 ```
 
-However, GitHub Actions explicitly commits generated outputs with:
+Airflow must be configured to detect this DAG.
+
+If needed, create a symbolic link:
+
+```bash
+mkdir -p ~/airflow/dags
+ln -sf "$PWD/dags/air_quality_hourly_dag.py" ~/airflow/dags/air_quality_hourly_dag.py
+```
+
+### 7.9 Check DAG import
+
+```bash
+airflow dags list-import-errors --local
+```
+
+Expected result:
 
 ```text
-git add -f data/raw data/clean
+No data found
 ```
 
-This keeps local development clean while preserving pipeline outputs after automated runs.
+### 7.10 Start Airflow
 
-## 9. Historical backfill strategy
+```bash
+airflow standalone
+```
 
-Historical backfill is executed manually with the backfill workflow.
+The DAG must be unpaused in the Airflow UI.
 
-The workflow input is:
+## 8. Scheduling
+
+The DAG is scheduled hourly:
 
 ```text
-days
+schedule="@hourly"
 ```
+
+The task order is:
+
+```text
+collect_raw_data
+↓
+rebuild_clean_data
+↓
+validate_clean_data
+↓
+load_data_warehouse
+```
+
+## 9. Historical Backfill Strategy
+
+Historical backfill will be executed manually before or during deployment.
 
 Example:
 
-```text
-90
+```bash
+python scripts/backfill_air_quality.py --days 90
 ```
 
-Recommended approach:
+After the backfill:
 
-- first test with a small value such as `3` or `7`;
-- verify raw files, clean CSV, validation, and Neon loading;
-- then run the larger required backfill period.
+```bash
+python scripts/rebuild_clean.py
+python scripts/validate_clean.py
+python scripts/load_warehouse.py
+```
 
-## 10. Monitoring plan
+The backfill must be tested with a small number of days before running a larger period.
+
+## 10. Monitoring Plan
 
 The deployed pipeline must be monitored through:
 
-- GitHub Actions run status;
-- workflow logs;
-- generated raw files;
+- Airflow DAG status;
+- Airflow task logs;
+- raw file generation;
 - clean CSV validation result;
-- Neon row counts;
+- warehouse row counts;
 - SQL analysis queries.
 
-Useful repository checks:
+Useful checks:
 
 ```bash
 find data/raw -name "*.json" | wc -l
 wc -l data/clean/air_quality_clean.csv
 ```
 
-Useful warehouse check:
+Warehouse check:
 
 ```sql
 SELECT COUNT(*) AS total_measurements
 FROM fact_air_quality;
 ```
 
-## 11. Failure handling
+## 11. Failure Handling
 
-If an API request fails:
+If an API timeout happens:
 
-- the API client retries the request;
-- the workflow fails if all attempts fail;
-- the failed run can be inspected in GitHub Actions logs;
-- the next scheduled run can collect new data again.
+- the API client retry logic attempts the request again;
+- Airflow can retry failed tasks;
+- failed runs can be inspected in Airflow logs.
 
 If validation fails:
 
-- the warehouse loading step must not be trusted;
-- inspect the clean CSV and raw files;
-- fix the transformation or data issue;
-- rerun the workflow.
+- the warehouse loading task must not run;
+- the clean CSV must be inspected;
+- raw files can be used to rebuild the clean dataset.
 
 If warehouse loading fails:
 
-- check the `Create warehouse schema` step;
-- check the `Load warehouse` step;
-- inspect the Python error in GitHub Actions logs.
+- check `DATABASE_URL`;
+- check Neon availability;
+- rerun `scripts/load_warehouse.py` after fixing the issue.
 
-## 12. Production readiness checklist
+## 12. Security Notes
 
-Before final submission, verify that:
+The following files must not be committed:
 
-- the hourly workflow runs successfully;
-- the manual backfill workflow runs successfully;
-- generated raw files are committed;
-- the clean CSV is committed;
+```text
+.env
+```
+
+Secrets must be stored only in the deployment environment.
+
+The repository should only contain:
+
+```text
+.env.example
+```
+
+## 13. Production Readiness Checklist
+
+Before final deployment, verify that:
+
+- the repository is clean and pushed;
+- `.env` exists on the server;
+- dependencies are installed;
+- Airflow detects the DAG;
+- the DAG runs successfully;
+- the DAG is unpaused;
+- raw files are generated;
+- the clean CSV is rebuilt;
 - validation passes;
-- Neon tables exist;
-- Neon tables contain data;
-- SQL analysis queries return results;
-- workflow run history contains enough evidence;
-- dashboard screenshots are available if required.
+- the warehouse receives data;
+- SQL analysis queries return results.
+
+## 14. Final Note
+
+This document is a deployment plan.
+
+It does not claim that the pipeline is already deployed.
+
+The actual 24/7 deployment will be completed later during the group project phase.
+
+

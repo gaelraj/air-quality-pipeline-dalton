@@ -4,11 +4,11 @@
 
 This project implements an automated data pipeline for collecting, storing, cleaning, validating, and analyzing air quality data.
 
-The pipeline collects air pollution data from the OpenWeather Air Pollution API for multiple cities, stores raw API responses, rebuilds a clean CSV dataset, validates the data quality, and loads the result into a PostgreSQL data warehouse hosted on Neon.
+The pipeline collects air pollution data from the OpenWeather Air Pollution API for multiple cities, stores the raw API responses, rebuilds a clean CSV dataset, validates the data quality, and loads the result into a PostgreSQL data warehouse.
 
-The project supports both hourly data collection and historical backfill.
+The project is designed to support both hourly data collection and historical backfill.
 
-## 2. Project objective
+## 2. Project Objective
 
 The objective of this project is to build a reliable data pipeline that can:
 
@@ -20,7 +20,7 @@ The objective of this project is to build a reliable data pipeline that can:
 - load the data into a dimensional data warehouse;
 - support analytical SQL queries.
 
-## 3. Data source
+## 3. Data Source
 
 The data source used in this project is the OpenWeather Air Pollution API.
 
@@ -36,7 +36,7 @@ The API provides air quality information, including:
 - PM10;
 - NH3.
 
-The pipeline uses two API modes:
+The pipeline uses two API endpoints:
 
 ```text
 Current air pollution endpoint
@@ -45,7 +45,7 @@ Historical air pollution endpoint
 
 The current endpoint is used for hourly collection, while the historical endpoint is used for backfill.
 
-## 4. Monitored cities
+## 4. Monitored Cities
 
 The pipeline currently monitors five cities in Madagascar:
 
@@ -59,21 +59,23 @@ The pipeline currently monitors five cities in Madagascar:
 
 Each city is associated with a latitude and longitude used to query the OpenWeather API.
 
-## 5. Technical stack
+## 5. Technical Stack
+
+The project uses the following technologies:
 
 | Component | Technology |
 |---|---|
 | Programming language | Python |
-| Orchestrator | GitHub Actions |
+| Orchestrator | Apache Airflow |
 | API client | Requests |
 | Data processing | Pandas |
-| Environment variables | python-dotenv / CI environment |
+| Environment variables | python-dotenv |
 | Data warehouse | PostgreSQL |
 | Cloud database | Neon |
 | Storage format | JSON and CSV |
 | Version control | Git |
 
-## 6. Pipeline architecture
+## 6. Pipeline Architecture
 
 The global data flow is:
 
@@ -104,7 +106,7 @@ Warehouse layer
 → stores dimensional analytical tables
 ```
 
-## 7. Raw data layer
+## 7. Raw Data Layer
 
 Raw API responses are stored as JSON files in:
 
@@ -124,7 +126,7 @@ Raw files are not modified after being written.
 
 This makes the pipeline reliable because the clean dataset can be rebuilt from raw files at any time.
 
-## 8. Clean data layer
+## 8. Clean Data Layer
 
 The clean dataset is stored in:
 
@@ -146,7 +148,7 @@ city_name + observed_at_utc
 
 The clean builder removes duplicate rows and keeps the latest ingested record for each city and observation hour.
 
-## 9. Data validation
+## 9. Data Validation
 
 Before loading data into the warehouse, the clean CSV is validated.
 
@@ -159,11 +161,11 @@ The validation step checks:
 - duplicate city/hour rows;
 - chronological sorting.
 
-If validation fails, the warehouse loading step is not executed successfully.
+If validation fails, the warehouse loading step is not executed.
 
 This prevents invalid data from entering the analytical database.
 
-## 10. Data warehouse model
+## 10. Data Warehouse Model
 
 The warehouse uses a star schema.
 
@@ -226,54 +228,43 @@ ingested_at_utc
 
 The fact table references `dim_city` and `dim_time` using foreign keys.
 
-## 11. Orchestration with GitHub Actions
+## 11. Orchestration with Airflow
 
-GitHub Actions is used to orchestrate the pipeline.
+Apache Airflow is used to orchestrate the hourly pipeline.
 
-The project contains two workflows:
-
-```text
-.github/workflows/aqi_hourly_pipeline.yml
-.github/workflows/aqi_backfill_pipeline.yml
-```
-
-### 11.1 Hourly workflow
-
-The hourly workflow runs every hour and executes:
+The DAG is named:
 
 ```text
-collect current raw data
-↓
-rebuild clean CSV
-↓
-validate clean CSV
-↓
-create warehouse schema
-↓
-load warehouse
-↓
-commit generated raw and clean data
+air_quality_hourly_pipeline
 ```
 
-### 11.2 Backfill workflow
-
-The backfill workflow is manual and executes:
+The task order is:
 
 ```text
-backfill historical raw data
+collect_raw_data
 ↓
-rebuild clean CSV
+rebuild_clean_data
 ↓
-validate clean CSV
+validate_clean_data
 ↓
-create warehouse schema
-↓
-load warehouse
-↓
-commit generated raw and clean data
+load_data_warehouse
 ```
 
-## 12. Historical backfill
+The DAG is scheduled hourly:
+
+```text
+schedule="@hourly"
+```
+
+The DAG uses:
+
+```text
+catchup=False
+```
+
+This means Airflow does not automatically replay all missed historical executions. Historical data is handled separately by the backfill script.
+
+## 12. Historical Backfill
 
 The project includes a historical backfill script:
 
@@ -283,17 +274,23 @@ scripts/backfill_air_quality.py
 
 The backfill script collects historical air quality data and stores it in the raw layer.
 
-After the backfill, the same data flow is used:
+It does not directly load data into the warehouse.
+
+After a backfill, the following steps are executed:
 
 ```text
-raw → clean → validation → warehouse
+rebuild clean CSV
+validate clean CSV
+load warehouse
 ```
+
+This keeps the same data flow for both current and historical data.
 
 ## 13. Idempotency
 
 The warehouse loading process uses upsert logic.
 
-This means that running the loader multiple times does not create duplicate warehouse records.
+This means that running the loader multiple times does not create duplicate records.
 
 The tables use conflict rules based on:
 
@@ -305,15 +302,7 @@ fact_air_quality: city_id + time_id
 
 If a record already exists, it is reused or updated instead of being duplicated.
 
-## 14. Generated data management
-
-The generated raw and clean data folders are ignored for normal local commits.
-
-GitHub Actions commits generated data explicitly after successful runs.
-
-This keeps developer commits clean while preserving pipeline outputs for final verification.
-
-## 15. Analytical queries
+## 14. Analytical Queries
 
 The warehouse supports analytical queries such as:
 
@@ -326,9 +315,15 @@ The warehouse supports analytical queries such as:
 - weekend vs weekday AQI comparison;
 - worst AQI observations.
 
-## 16. Tests performed
+The analysis queries are stored in:
 
-The project can be tested with:
+```text
+sql/analysis_queries.sql
+```
+
+## 15. Tests Performed
+
+The project has been tested with:
 
 - current API client test;
 - historical API client test;
@@ -338,27 +333,30 @@ The project can be tested with:
 - clean CSV validation;
 - warehouse schema creation;
 - warehouse loading;
-- GitHub Actions hourly workflow;
-- GitHub Actions backfill workflow.
+- Airflow DAG test execution.
 
-## 17. Current status
+A small historical backfill was tested successfully before loading the data into the warehouse.
+
+## 16. Current Status
 
 The pipeline currently supports:
 
-- hourly collection through GitHub Actions;
+- hourly collection with Airflow;
 - raw JSON storage;
 - clean CSV generation;
 - clean data validation;
-- warehouse loading into Neon PostgreSQL;
-- historical backfill through a manual GitHub Actions workflow;
+- warehouse loading into PostgreSQL;
+- historical backfill for a selected number of days;
 - SQL analysis from the warehouse.
 
-Final evidence must be collected from GitHub Actions run history, generated raw and clean files, and Neon SQL query results.
+A larger historical backfill can be executed later during the group project phase.
 
-## 18. Conclusion
+## 17. Conclusion
 
 This project demonstrates a complete data engineering workflow.
 
 It includes data ingestion, raw storage, data cleaning, validation, warehouse modeling, orchestration, and SQL analysis.
 
 The architecture is reliable because raw data is preserved, clean data can be rebuilt, invalid data is blocked before loading, and warehouse inserts are idempotent.
+
+

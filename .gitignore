@@ -5,9 +5,8 @@ __pycache__/
 *.pyd
 venv/
 .venv/
+airflow_venv/
 
-# Generated data is ignored locally.
-# GitHub Actions commits generated raw and clean files explicitly with git add -f.
 data/raw/*
 !data/raw/.gitkeep
 
@@ -21,3 +20,6 @@ Thumbs.db
 .vscode/
 .idea/
 .ipynb_checkpoints/
+airflow.db
+simple_auth_manager_passwords.json.generated
+standalone_admin_password.txt
