@@ -30,5 +30,3 @@ CITIES = [
         "longitude": 49.2917,
     },
 ]
-
-
